@@ -1,7 +1,7 @@
 name: betracky_background_location
 description: "Betracky Background Location Service"
-version: 0.0.1
-homepage:
+version: 1.0.0
+homepage: https://dineshwayaman.com/
 
 environment:
   sdk: ^3.6.0
