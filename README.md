@@ -106,6 +106,17 @@ dependencies:
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+<!--  Inside <application>-->
+    <application
+<!--     Add this service-->
+      <service
+      android:name="com.transistorsoft.flutter.backgroundfetch.HeadlessTask"
+      android:permission="android.permission.BIND_JOB_SERVICE"
+      android:exported="true"/>
+
+    </application>
+
 ```
 
 - You need to add following permissions in your `Info.plist` file:
@@ -180,10 +191,10 @@ class _TestState extends State<Test> {
     var logger = Logger();
 
     // Upload location data to server
-    String baseUrl = "http://5.9.196.5:8089/api/v1";
-    String endpoint = "/createBulkLocations";
+    String baseUrl = "https://api.betracky.com";
+    String endpoint = "/api/v1/locations";
     String url = "$baseUrl$endpoint";
-    String access_token = "e6fac1fd-1bc0-449b-a562-22b9b916e3d1";
+    String access_token = "your_access_token";
 
     List<Map<String, dynamic>> data = [
       {

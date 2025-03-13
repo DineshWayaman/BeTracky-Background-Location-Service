@@ -1,6 +1,6 @@
 name: betracky_background_location
 description: "Betracky Background Location Service with Upload Locations to Your Own Server"
-version: 1.0.1
+version: 1.0.3
 homepage: https://dineshwayaman.com/
 
 environment:
