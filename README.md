@@ -187,53 +187,6 @@ class _TestState extends State<Test> {
     });
   }
 
-  Future<void> uploadLocation(LocationDataModel locationData) async {
-    var logger = Logger();
-
-    // Upload location data to server
-    String baseUrl = "https://api.betracky.com";
-    String endpoint = "/api/v1/locations";
-    String url = "$baseUrl$endpoint";
-    String access_token = "your_access_token";
-
-    List<Map<String, dynamic>> data = [
-      {
-        'journey_id': 5,
-        'latitude': locationData.latitude,
-        'longitude': locationData.longitude,
-        'actual_created_time': locationData.timestamp.toIso8601String(),
-      }
-    ];
-
-
-    try{
-      var response = await http.post(
-        Uri.parse(url),
-        headers: {
-          "Authorization": "Bearer $access_token",
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode(data),
-      );
-
-      logger.e("Response: ${response.body}");
-
-      if (response.statusCode == 200) {
-        print('Data uploaded successfully.');
-        notiService.showNotification(title: 'Location Uploaded', body: 'Your location :. ${locationData.timestamp}');
-      }else{
-        print('Failed to upload data: ${response.statusCode}');
-      }
-    }catch(e){
-      print('Error: $e');
-    }
-
-
-
-
-  }
-
-
   Future<void> initializeService() async {
     await requestPermissions();
 
