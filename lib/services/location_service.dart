@@ -41,7 +41,7 @@ class BeTrackyBackgroundLocation {
         autoStart: startOnBoot,
       ),
     );
-    _service.startService();
+    await _service.startService();
     // Pass the URL and access token to the service
     // Store offlineEnabled in SharedPreferences
     SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -62,6 +62,17 @@ class BeTrackyBackgroundLocation {
   }
 
   static void onStart(ServiceInstance service) async {
+
+    DartPluginRegistrant.ensureInitialized();
+
+    if(service is AndroidServiceInstance){
+      try{
+        await service.setForegroundNotificationInfo(title: 'Location Tracking', content: "Tracking Your Location in the Background");
+      }catch(e){
+        print("Foreground Notification Error: $e");
+      }
+    }
+
     SharedPreferences prefs = await SharedPreferences.getInstance();
     DatabaseHelper dbHelper = DatabaseHelper();
     // Retrieve stored values
