@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui';
 import 'package:betracky_background_location/models/location.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
@@ -8,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:betracky_background_location/utils/database_helper.dart';
 
+@pragma('vm:entry-point')
 class BeTrackyBackgroundLocation {
   static final _service = FlutterBackgroundService();
   static StreamSubscription<Position>? _positionStreamSubscription;
@@ -55,12 +57,12 @@ class BeTrackyBackgroundLocation {
     });
     Workmanager().initialize(callbackDispatcher);
   }
-
+  @pragma('vm:entry-point')
   static Future<void> stopService() async {
     _positionStreamSubscription?.cancel();
     _service.invoke("stopService");
   }
-
+  @pragma('vm:entry-point')
   static void onStart(ServiceInstance service) async {
 
     DartPluginRegistrant.ensureInitialized();
@@ -141,7 +143,7 @@ class BeTrackyBackgroundLocation {
       print("Offline: ${offlineEnabled}");
       if (offlineEnabled == true) {
         try {
-          await dbHelper.insertLocation(locationData);
+            await dbHelper.insertLocation(locationData);
         } catch (e) {
           print("Error LocalDB: $e");
         }
@@ -158,7 +160,7 @@ class BeTrackyBackgroundLocation {
       } else {
         if (url != null) {
           print("url : $url");
-          await uploadLocationOnline(locationData, url!, accessToken, id!);
+            await uploadLocationOnline(locationData, url!, accessToken, id!);
         }
       }
     });
@@ -178,11 +180,11 @@ class BeTrackyBackgroundLocation {
     print('Uploading location data to server...');
     List<Map<String, dynamic>> data = locations
         .map((location) => {
-              'l_id': id,
-              'latitude': location.latitude,
-              'longitude': location.longitude,
-              'actual_created_time': location.timestamp.toIso8601String(),
-            })
+      'l_id': id,
+      'latitude': location.latitude,
+      'longitude': location.longitude,
+      'actual_created_time': location.timestamp.toIso8601String(),
+    })
         .toList();
 
     try {
