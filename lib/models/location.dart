@@ -45,6 +45,10 @@ class LocationDataModel {
     return {
       'latitude': latitude,
       'longitude': longitude,
+      'altitude': altitude,
+      'speed': speed,
+      'heading': heading,
+      'accuracy': accuracy,
       'timestamp': timestamp.toIso8601String(),
     };
   }

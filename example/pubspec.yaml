@@ -1,0 +1,22 @@
+name: betracky_example
+description: Example app for betracky_background_location package.
+publish_to: 'none'
+version: 1.0.0
+
+environment:
+  sdk: ^3.6.0
+  flutter: ">=3.29.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  betracky_background_location:
+    path: ../
+  flutter_background_service: ^5.1.0
+  geolocator: ^14.0.2
+  permission_handler: ^11.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0

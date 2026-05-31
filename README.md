@@ -1,249 +1,255 @@
 # BeTracky Background Location Service
 
-BeTracky Background Location Service is a Flutter package that provides background location tracking functionality. It can use to track the device's location even when the app is not in the foreground.
+A Flutter package for background location tracking with geofencing, offline storage, upload retry, and full server upload support.
 
 ## Features
 
-- Background location tracking
-- Configurable distance filter and accuracy
-- Start on boot option
-- Foreground service support
-- Offline mode to store locations locally when offline and upload them in batches when back online
-- Upload locations to a custom endpoint
-- Upload locations to BeTracky API
-- Custom location id support
+- Background location tracking (works when the app is closed)
+- Configurable distance filter, accuracy, and time-interval filter
+- Start on boot and foreground service support
+- Pause / Resume tracking without losing configuration
+- Offline mode: buffer locations in SQLite and upload in batches of 50
+- Upload retry queue with exponential backoff (1 min → 2 min → … → 60 min cap)
+- Upload full location fields: altitude, speed, heading, accuracy
+- Custom HTTP headers for any backend auth scheme
+- Circular geofencing with enter/exit stream events (pure Dart, no extra dependencies)
+- Stored location query API for analytics and route replay
+- Upload status, service state, and location count stream events
 
-## Getting started
+## Installation
 
-To use this package, add `betracky_background_location` as a dependency in your `pubspec.yaml` file:
+```yaml
+dependencies:
+  betracky_background_location: ^2.1.0
+```
 
+## Android setup
+
+### AndroidManifest.xml
+
+```xml
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+<uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>  <!-- Required Android 13+ -->
+<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+
+<!-- Inside <application> -->
+<service
+  android:name="com.transistorsoft.flutter.backgroundfetch.HeadlessTask"
+  android:permission="android.permission.BIND_JOB_SERVICE"
+  android:exported="true"/>
+```
+
+### Runtime permissions (critical)
+
+You **must** request both location and notification permissions at runtime before calling `startService`. If `POST_NOTIFICATIONS` is not granted on Android 13+, the foreground notification is silently suppressed and the OS will kill the service when the app is closed.
+
+```dart
+import 'package:permission_handler/permission_handler.dart';
+import 'package:geolocator/geolocator.dart';
+
+Future<void> requestPermissions() async {
+  // Location (required for tracking)
+  await Geolocator.requestPermission();
+  await Permission.locationAlways.request();  // for background tracking
+
+  // Notification (required for foreground service on Android 13+)
+  await Permission.notification.request();
+}
+
+// Call BEFORE startService:
+await requestPermissions();
+await BeTrackyBackgroundLocation.startService(...);
+```
+
+> **Note:** `startService` will throw a `StateError` if location permission is denied. The service starts without error if `POST_NOTIFICATIONS` is denied, but the persistent notification will not appear and the service may be killed by the OS on Android 13+ when the app is closed.
+
+## iOS setup
+
+Add to `Info.plist`:
+
+```xml
+<key>NSLocationAlwaysUsageDescription</key>
+<string>Location is required to track your location</string>
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>Location is required to track your location</string>
+<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+<string>Location is required to track your location</string>
+<key>UIBackgroundModes</key>
+<array>
+    <string>fetch</string>
+    <string>location</string>
+</array>
+```
 
 ## Usage
-- Import the package
-- You can send `url` and `access_token` if you have your own backend endpoint to upload locations. This will help you to upload locations even when the app is closed.
-- The `offlineEnabled` mode allows the app to store locations locally when offline and upload them in batches when back online.
-- The `url` and `access_token` and `id` are not mandatory. If you do not use a token, just pass the `url`. If you use a token, it should be a Bearer token. If you pass an id it will be sent to the endpoint as the location id otherwise it will generate id.(user_id, device_id, journey_id etc)
 
+### Start tracking
 
-- Start the service by calling the `startService` method. You can pass the following parameters:
-  - `distanceFilter`: The minimum distance between location updates in meters. Default is 0.
-  - `accuracy`: The desired accuracy for location updates. Default is `LocationAccuracy.high`.
-  - `startOnBoot`: Whether to start the service when the device boots up. Default is `false`.
-  - `foregroundService`: Whether to run the service as a foreground service. Default is `false`.
-  - `offlineEnabled`: Whether to store locations locally when offline and upload them in batches when back online. Default is `false`.
-  - `url`: The endpoint URL to upload locations. Optional.
-  - `access_token`: The access token to authenticate with the endpoint. Optional.
-  - `id`: The location id to send to the endpoint. Optional.
-  - `betrackyToken`: The token to authenticate with BeTracky API. This is mandatory.
 ```dart
 import 'package:betracky_background_location/betracky_background_location.dart';
 
-    try {
-        BeTrackyBackgroundLocation.startService(
-        distanceFilter: 0,
-        accuracy: LocationAccuracy.high,
-        startOnBoot: true,
-        foregroundService: true,
-        url: your_endpoint, // Optional
-        access_token: your_endpoint_access_token, // Optional
-        id: 5, // Optional - This is the location id that will be sent to the endpoint
-        offlineEnabled: true, // Optional
-        betrackyToken: "e6fac1fd-1bc0-449b-a562-22b9b916e3098jhA",
-      );
-    } catch (e) {
-      print('ErrorBetracky: $e');
-    }
-    
+await BeTrackyBackgroundLocation.startService(
+  distanceFilter: 10,             // minimum metres between updates
+  accuracy: LocationAccuracy.high,
+  startOnBoot: true,
+  foregroundService: true,
+  url: 'https://your-server.com/locations', // optional
+  accessToken: 'your-bearer-token',          // optional
+  id: 42,                                    // optional — sent as l_id
+  offlineEnabled: true,                      // buffer locally and batch upload
+  timeInterval: 30,                          // at most one update per 30 seconds
+  uploadFullData: true,                      // include altitude, speed, heading
+  customHeaders: {'X-API-Key': 'abc123'},    // any extra headers
+  maxRetries: 5,                             // retry failed uploads up to 5 times
+);
 ```
 
-- Stop the service by calling the `stopService` method.
+### Stop tracking
+
 ```dart
-    BeTrackyBackgroundLocation.stopService();
-```
-    
-- If you enabled online mode, this is the format your endpoint should accept for the payload: `l_id`, `latitude`, `longitude`, `actual_created_time` are the fields that will be sent to the endpoint.
-```json
-    [
-      {
-        "l_id": 5,
-        "latitude": 12.345678,
-        "longitude": 98.765432,
-        "actual_created_time": "2023-10-10T10:10:10.000Z"
-      }
-    ]
-```
-- If offline mode is enabled, the app will upload 50 bulk locations in the following format:
-```json
-      [
-          {
-            "l_id": 5,
-            "latitude": 12.345678,
-            "longitude": 98.765432,
-            "actual_created_time": "2023-10-10T10:10:10.000Z"
-          },
-          {
-            "l_id": 5,
-            "latitude": 12.345678,
-            "longitude": 98.765432,
-            "actual_created_time": "2023-10-10T10:10:10.000Z"
-          },
-          ...
-      ]
-
-```   
-
-- Install permission_handler and geolocator packages to request location permissions and get the device's location.
-```yaml
-dependencies:
-  permission_handler: latest_version
-  geolocator: latest_version
+await BeTrackyBackgroundLocation.stopService();
 ```
 
-- You need to add following permissions in your `AndroidManifest.xml` file:
-```xml
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+### Pause / Resume (without stopping the service)
 
-<!--  Inside <application>-->
-    <application
-<!--     Add this service-->
-      <service
-      android:name="com.transistorsoft.flutter.backgroundfetch.HeadlessTask"
-      android:permission="android.permission.BIND_JOB_SERVICE"
-      android:exported="true"/>
-
-    </application>
-
-```
-
-- You need to add following permissions in your `Info.plist` file:
-```xml
-    <key>NSLocationAlwaysUsageDescription</key>
-    <string>Location is required to track your location</string>
-    <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Location is required to track your location</string>
-    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>Location is required to track your location</string>
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>fetch</string>
-        <string>location</string>
-    </array>
-```
-
-
-
-
-## Example
 ```dart
-import 'dart:async';
-import 'dart:convert';
+await BeTrackyBackgroundLocation.pauseTracking();
+await BeTrackyBackgroundLocation.resumeTracking();
+final bool active = await BeTrackyBackgroundLocation.isTracking();
+```
 
-import 'package:betracky_background_location/models/location.dart';
-import 'package:betracky_background_location/services/location_service.dart';
-import 'package:flutter/material.dart';
+### Service status
+
+```dart
+final status = await BeTrackyBackgroundLocation.getStatus();
+// { 'isRunning': true, 'isTracking': true, 'pendingUploads': 3 }
+```
+
+### Stream events
+
+```dart
 import 'package:flutter_background_service/flutter_background_service.dart';
+
+final svc = FlutterBackgroundService();
+
+// Live location updates
+svc.on('update').listen((data) {
+  final loc = LocationDataModel.fromJson(data!);
+});
+
+// Upload success / failure
+svc.on('uploadStatus').listen((data) {
+  // { 'success': true, 'uploaded': 50, 'pending': 0 }
+});
+
+// Service state changes
+svc.on('serviceStatus').listen((data) {
+  // { 'running': true, 'tracking': true, 'offlineEnabled': false }
+});
+
+// Offline storage count
+svc.on('locationCount').listen((data) {
+  // { 'stored': 12 }
+});
+
+// Geofence enter / exit
+svc.on('geofenceEvent').listen((data) {
+  // { 'id': 'office', 'event': 'enter', 'latitude': ..., 'longitude': ..., 'distance': 45.2 }
+});
+```
+
+### Geofencing
+
+```dart
+// Register a circular geofence
+await BeTrackyBackgroundLocation.addGeofence(const Geofence(
+  id: 'office',
+  latitude: 12.345,
+  longitude: 98.765,
+  radiusMeters: 100,
+));
+
+// Remove one geofence
+await BeTrackyBackgroundLocation.removeGeofence('office');
+
+// Clear all geofences
+await BeTrackyBackgroundLocation.clearGeofences();
+```
+
+Geofences are evaluated on every location fix using `Geolocator.distanceBetween`. State (inside / outside) is tracked in memory and `geofenceEvent` is fired only on transitions.
+
+### Stored location query
+
+```dart
+// Query with optional date range
+final locations = await BeTrackyBackgroundLocation.getStoredLocations(
+  from: DateTime(2024, 1, 1),
+  to: DateTime.now(),
+  limit: 200,
+);
+
+final int count = await BeTrackyBackgroundLocation.getStoredLocationCount();
+
+await BeTrackyBackgroundLocation.clearStoredLocations();
+```
+
+### `startService` parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `distanceFilter` | `int` | Yes | Minimum metres between location updates |
+| `accuracy` | `LocationAccuracy` | Yes | Desired GPS accuracy |
+| `startOnBoot` | `bool` | Yes | Restart service on device reboot |
+| `foregroundService` | `bool` | Yes | Show persistent foreground notification |
+| `url` | `String?` | No | Endpoint URL to POST locations to |
+| `accessToken` | `String?` | No | Bearer token for your endpoint |
+| `id` | `int?` | No | Location ID sent as `l_id` in the payload |
+| `offlineEnabled` | `bool?` | No | Store every fix in SQLite. If `url` is also set, uploads in batches of 50; otherwise stores locally only (use `getStoredLocations()` to read) |
+| `timeInterval` | `int?` | No | Minimum seconds between updates (0 = no limit) |
+| `uploadFullData` | `bool?` | No | Include altitude, speed, heading, accuracy in payload |
+| `customHeaders` | `Map<String, String>?` | No | Extra HTTP headers for every upload request |
+| `maxRetries` | `int?` | No | Max retry attempts for failed uploads (default: 5) |
+
+## Server payload format
+
+```json
+[
+  {
+    "l_id": 42,
+    "latitude": 12.345678,
+    "longitude": 98.765432,
+    "actual_created_time": "2024-01-15T10:30:00.000Z",
+    "altitude": 50.2,
+    "speed": 1.5,
+    "heading": 90.0,
+    "accuracy": 5.0
+  }
+]
+```
+
+The `altitude`, `speed`, `heading`, and `accuracy` fields are only included when `uploadFullData: true`.
+
+## Requesting permissions
+
+```dart
 import 'package:geolocator/geolocator.dart';
-import 'package:globetrack/test/noti_service.dart';
-import 'package:logger/logger.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:http/http.dart' as http;
+await Geolocator.requestPermission();
+```
 
-class Test extends StatefulWidget {
-  const Test({super.key});
+## Migration from 1.x
 
-  @override
-  State<Test> createState() => _TestState();
-}
+Remove the `betrackyToken` argument — it no longer exists:
 
-class _TestState extends State<Test> {
-  var logger = Logger();
-  LocationDataModel? _currentLocation;
-  late StreamSubscription _streamSubscription;
-  final NotiService notiService = NotiService();
+```dart
+// Before (1.x):
+BeTrackyBackgroundLocation.startService(..., betrackyToken: 'e6fac1fd-...');
 
+// After (2.x):
+BeTrackyBackgroundLocation.startService(...);
+```
 
-  Future<void> requestPermissions() async {
-    await Permission.location.request();
-    await Permission.locationAlways.request(); // For background location
-    await Permission.locationWhenInUse.request(); // For foreground location
-  }
-
-  @override
-  void initState() {
-    // TODO: implement initState
-    super.initState();
-
-    initializeService();
-    _streamSubscription = FlutterBackgroundService().on("update").listen((locationData) {
-      logger.e("Location Data: $locationData");
-      setState(() {
-        _currentLocation = LocationDataModel.fromJson(locationData!);
-      });
-
-    });
-  }
-
-  Future<void> initializeService() async {
-    await requestPermissions();
-
-
-    FlutterBackgroundService().on("update").listen((locationData) {
-      if (locationData != null) {
-        var logger = Logger();
-        logger.e("Location Data: $locationData");
-        LocationDataModel location = LocationDataModel.fromJson(locationData);
-        // uploadLocation(location);
-      }
-    });
-
-   try{
-     BeTrackyBackgroundLocation.startService(
-       distanceFilter: 0,
-       accuracy: LocationAccuracy.high,
-       startOnBoot: true,
-       foregroundService: true,
-       offlineEnabled: false, // Optional
-       url: "your_endpoint", // Optional
-       access_token: "your_endpoint_access_token", // Optional
-       id: your id, // Optional
-       betrackyToken: "e6fac1fd-1bc0-449b-a562-22b9b916e3098jhA", // use this key 
-     );
-  }catch(e){
-    logger.e('ErrorBetracky: $e');
-  }
-
-  }
-
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Location Tracker'),
-      ),
-      body: Center(
-        child: _currentLocation == null
-            ? CircularProgressIndicator()
-            : Column(
-          children: [
-            Text(
-              '📍 Location: ${_currentLocation!.latitude}, ${_currentLocation!.longitude}',
-              style: TextStyle(fontSize: 20),
-            ),
-            ElevatedButton(onPressed: (){
-              BeTrackyBackgroundLocation.stopService();
-            }, child: Text('Stop Service'))
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-
-
-
+Also rename `access_token` to `accessToken` if upgrading from 1.x.
